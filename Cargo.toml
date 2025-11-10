@@ -1,0 +1,12 @@
+[package]
+name = "swap_rescue"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+boltz-client = { git = "https://github.com/SatoshiPortal/boltz-rust.git", ref = "ced38e7a60ee96fa8b480015271f1ad2ff194884", features = ["lnurl", "electrum"] }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+dialoguer = "0.11"
