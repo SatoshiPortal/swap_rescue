@@ -58,5 +58,5 @@ cargo run -- --config config.yaml
 OR if its in a different path as this repo:
 
 ```
-cargo run -- --config /home/ishi/Downloads/config.yaml
+cargo run -- --config ./config.yaml
 ```

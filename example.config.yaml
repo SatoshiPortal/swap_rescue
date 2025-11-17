@@ -1,23 +1,24 @@
 user_input:
   mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
   passphrase: ""
-  swap_index: 0
-  return_address: "lq1qqvpfp28manyd036nrvzs5eeg2y48f48tlf27n68u65esxsgjd3sc3u673rp6dvp0y5mdgxp93aj4w67uu72ajgqyfvvj59h3h"
+  swap_index: 1
+  return_address: ""
 
 provider_input:
-  rescue_type: "refund"
+  rescue_type: "claim"
   claim_leaf:
-    output: "82012088a91456d2898df81b8a1df72a46cc5b8c42a243cce31e8820598d43ed9ab6ecbbfc4a35cd22865dc342908177a35dbcf53da6124702a1dcfdac"
+    output: "82012088a914fb07ad8fa158706f024e4f4a3a2b5adf3ace6566882045ce97fc6a6e8dfa139d8d8f86a391cafeca9fb564066e488233c38d009bf3acac"
     version: 196
   refund_leaf:
-    output: "206e0311c79bacf2a6e6889ffca872017a2d60efaaef693b4ba5819b98d8ff1659ad0358e436b1"
+    output: "20abf1a3992fad6570a672ff09d62585f3eb1b8567b99c2f6346b1b592f2272b9cad034c0a37b1"
     version: 196
-  from_network: "liquid"
-  to_network: "bitcoin"
-  blinding_key: "e6ddd4481371f173565d9e73d853764e5294105407a073ba2b3e945bcb1c70bf"
-  timeout_block_height: 3597400
-  server_public_key: "02598d43ed9ab6ecbbfc4a35cd22865dc342908177a35dbcf53da6124702a1dcfd"
-  lockup_address: "lq1pqg05npjrh665rujhs5qj8txstu3scz3lt6jlxz9uunjvzvdwt442ecdv6ajkk0nvzkd0rmdervgzyjvcq5sk2kjvmt4x7p5cd0lk4dusjke4sjyu58pg"
-  amount: 986560
-  swap_id: "W22oeARw5mFa"
-
+  from_network: "bitcoin"
+  to_network: "liquid"
+  blinding_key: "097f355d46b80e154371fb22a5b3e0f0a4ca97cea6b5c0bb725ee4f2ad684131"
+  timeout_block_height: 3607116
+  server_public_key: "03abf1a3992fad6570a672ff09d62585f3eb1b8567b99c2f6346b1b592f2272b9c"
+  user_lockup_address: "bc1plcnf5s75vqtgzjge4wcnh77ypacluhffrud9njwss5tenrjfa8hsx5ejn2"
+  server_lockup_address: "lq1pqgw3rh353w6vxpkuupc883yqegmdyrxkd6qd3nlzvx5ys4x57r5axr7xfuf3vusv58hcp8xt0asznaj6w5x9wmsr4f9e254k0uvn85hn780gzgzfa0ms"
+  amount: 49017
+  swap_id: "RRoRkW2yDHM5"
+  preimage: "508a03ceaf6e73e582a5846d291f9742150b6a5761ad1ebb5efeadee89d855af"

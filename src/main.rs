@@ -154,7 +154,8 @@ async fn claim_rescue(
     blinding_key: Option<&str>,
     timeout_block_height: u32,
     server_public_key: &str,
-    lockup_address: &str,
+    user_lockup_address: &str,
+    server_lockup_address: &str,
     amount: u64,
     swap_id: &str,
     claim_address: &str,
@@ -177,6 +178,33 @@ async fn claim_rescue(
 
     let server_public_key = PublicKey::from_str(server_public_key)?;
 
+    let refund_swap_key =
+        SwapKey::from_chain_account(mnemonic, passphrase, from_network, swap_index)?;
+
+    let refund_public_key = PublicKey {
+        compressed: true,
+        inner: refund_swap_key.keypair.public_key(),
+    };
+
+    let lockup_details = ChainSwapDetails {
+        swap_tree: swap_tree.clone(),
+        lockup_address: user_lockup_address.to_string(),
+        server_public_key,
+        timeout_block_height,
+        amount,
+        blinding_key: blinding_key.map(|k| k.to_string()),
+        refund_address: None,
+        claim_address: None,
+        bip21: None,
+    };
+
+    let lockup_script = SwapScript::chain_from_swap_resp(
+        from_network,
+        boltz_client::boltz::Side::Lockup,
+        lockup_details,
+        refund_public_key,
+    )?;
+
     let claim_swap_key = SwapKey::from_chain_account(mnemonic, passphrase, to_network, swap_index)?;
 
     let claim_public_key = PublicKey {
@@ -186,7 +214,7 @@ async fn claim_rescue(
 
     let claim_details = ChainSwapDetails {
         swap_tree: swap_tree.clone(),
-        lockup_address: lockup_address.to_string(),
+        lockup_address: server_lockup_address.to_string(),
         server_public_key,
         timeout_block_height,
         amount,
@@ -262,7 +290,11 @@ async fn claim_rescue(
         output_address: claim_address.to_string(),
         fee,
         swap_id: swap_id.to_string(),
-        options: Some(TransactionOptions::default().with_cooperative(true)),
+        options: Some(
+            TransactionOptions::default()
+                .with_cooperative(true)
+                .with_chain_claim(refund_swap_key.keypair, lockup_script),
+        ),
         chain_client: &chain_client,
         boltz_client: &boltz_api,
     };
@@ -317,9 +349,11 @@ struct ProviderInput {
     blinding_key: Option<String>,
     timeout_block_height: u32,
     server_public_key: String,
-    lockup_address: String,
+    user_lockup_address: String,
+    server_lockup_address: String,
     amount: u64,
     swap_id: String,
+    preimage: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -375,6 +409,11 @@ async fn main() {
         std::process::exit(1);
     }
 
+    if rescue_type == "claim" && config.provider_input.preimage.is_none() {
+        eprintln!("Error: preimage is required for coop claim");
+        std::process::exit(1);
+    }
+
     let result = if rescue_type == "refund" {
         refund_rescue(
             &config.user_input.mnemonic,
@@ -385,7 +424,7 @@ async fn main() {
             config.provider_input.blinding_key.as_deref(),
             config.provider_input.timeout_block_height,
             &config.provider_input.server_public_key,
-            &config.provider_input.lockup_address,
+            &config.provider_input.user_lockup_address,
             config.provider_input.amount,
             &config.provider_input.swap_id,
             &config.user_input.return_address,
@@ -405,11 +444,12 @@ async fn main() {
             config.provider_input.blinding_key.as_deref(),
             config.provider_input.timeout_block_height,
             &config.provider_input.server_public_key,
-            &config.provider_input.lockup_address,
+            &config.provider_input.user_lockup_address,
+            &config.provider_input.server_lockup_address,
             config.provider_input.amount,
             &config.provider_input.swap_id,
             &config.user_input.return_address,
-            None,
+            config.provider_input.preimage.as_deref(),
             &config.user_input.passphrase,
             config.user_input.swap_index,
             from_network,
