@@ -1,324 +1,18 @@
-use boltz_client::PublicKey;
-use boltz_client::boltz::{
-    BOLTZ_MAINNET_URL_V2, BoltzApiClientV2, ChainSwapDetails, Leaf, SwapTree,
-};
-use boltz_client::error::Error;
-use boltz_client::fees::Fee;
-use boltz_client::network::electrum::{ElectrumBitcoinClient, ElectrumLiquidClient};
-use boltz_client::network::{BitcoinChain, Chain, LiquidChain};
-use boltz_client::swaps::BtcLikeTransaction;
-use boltz_client::swaps::{ChainClient, SwapScript, SwapTransactionParams, TransactionOptions};
-use boltz_client::util::secrets::{Preimage, SwapKey};
 use clap::Parser;
 use dialoguer::Confirm;
 use serde::Deserialize;
 use std::fs;
-use std::str::FromStr;
-use std::time::Duration;
-
-async fn refund_rescue(
-    mnemonic: &str,
-    claim_leaf_output: &str,
-    claim_leaf_version: u8,
-    refund_leaf_output: &str,
-    refund_leaf_version: u8,
-    blinding_key: Option<&str>,
-    timeout_block_height: u32,
-    server_public_key: &str,
-    lockup_address: &str,
-    amount: u64,
-    swap_id: &str,
-    refund_address: &str,
-    passphrase: &str,
-    swap_index: u64,
-    from_network: Chain,
-    to_network: Chain,
-) -> Result<(BtcLikeTransaction, ChainClient, u64, String, Chain), Error> {
-    let from_chain = from_network;
-
-    let swap_tree = SwapTree {
-        claim_leaf: Leaf {
-            output: claim_leaf_output.to_string(),
-            version: claim_leaf_version,
-        },
-        refund_leaf: Leaf {
-            output: refund_leaf_output.to_string(),
-            version: refund_leaf_version,
-        },
-    };
-
-    let server_public_key = PublicKey::from_str(server_public_key)?;
-
-    let refund_swap_key =
-        SwapKey::from_chain_account(mnemonic, passphrase, from_chain, swap_index)?;
-
-    let refund_public_key = PublicKey {
-        compressed: true,
-        inner: refund_swap_key.keypair.public_key(),
-    };
-
-    let lockup_details = ChainSwapDetails {
-        swap_tree: swap_tree.clone(),
-        lockup_address: lockup_address.to_string(),
-        server_public_key,
-        timeout_block_height,
-        amount,
-        blinding_key: blinding_key.map(|k| k.to_string()),
-        refund_address: None,
-        claim_address: None,
-        bip21: None,
-    };
-
-    let lockup_script = SwapScript::chain_from_swap_resp(
-        from_chain,
-        boltz_client::boltz::Side::Lockup,
-        lockup_details,
-        refund_public_key,
-    )?;
-
-    println!("Lockup script created: {:?}", lockup_script);
-
-    let mut chain_client = ChainClient::new();
-
-    match from_network {
-        Chain::Bitcoin(bitcoin_chain) => {
-            chain_client =
-                chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
-        }
-        Chain::Liquid(liquid_chain) => {
-            chain_client =
-                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
-        }
-    }
-
-    match to_network {
-        Chain::Bitcoin(bitcoin_chain) => {
-            if !matches!(from_network, Chain::Bitcoin(_)) {
-                chain_client =
-                    chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
-            }
-        }
-        Chain::Liquid(liquid_chain) => {
-            if !matches!(from_network, Chain::Liquid(_)) {
-                chain_client =
-                    chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
-            }
-        }
-    }
-
-    let boltz_api = BoltzApiClientV2::new(
-        BOLTZ_MAINNET_URL_V2.to_string(),
-        Some(Duration::from_secs(30)),
-    );
-
-    println!("\n=== Constructing Refund Transaction ===");
-    println!("Swap ID: {}", swap_id);
-    println!("Refund address: {}", refund_address);
-    println!("Direction: {:?} -> {:?}", from_network, to_network);
-
-    let fee = match from_network {
-        Chain::Liquid(_) => Fee::Absolute(30),
-        Chain::Bitcoin(_) => Fee::Absolute(300),
-    };
-
-    let swap_params = SwapTransactionParams {
-        keys: refund_swap_key.keypair,
-        output_address: refund_address.to_string(),
-        fee,
-        swap_id: swap_id.to_string(),
-        options: Some(TransactionOptions::default().with_cooperative(true)),
-        chain_client: &chain_client,
-        boltz_client: &boltz_api,
-    };
-
-    println!("\nConstructing refund transaction...");
-    let tx = lockup_script.construct_refund(swap_params).await?;
-
-    println!("Refund transaction constructed successfully!");
-
-    Ok((
-        tx,
-        chain_client,
-        amount,
-        refund_address.to_string(),
-        from_network,
-    ))
-}
-
-async fn claim_rescue(
-    mnemonic: &str,
-    claim_leaf_output: &str,
-    claim_leaf_version: u8,
-    refund_leaf_output: &str,
-    refund_leaf_version: u8,
-    blinding_key: Option<&str>,
-    timeout_block_height: u32,
-    server_public_key: &str,
-    user_lockup_address: &str,
-    server_lockup_address: &str,
-    amount: u64,
-    swap_id: &str,
-    claim_address: &str,
-    preimage: Option<&str>,
-    passphrase: &str,
-    swap_index: u64,
-    from_network: Chain,
-    to_network: Chain,
-) -> Result<(BtcLikeTransaction, ChainClient, u64, String, Chain), Error> {
-    let swap_tree = SwapTree {
-        claim_leaf: Leaf {
-            output: claim_leaf_output.to_string(),
-            version: claim_leaf_version,
-        },
-        refund_leaf: Leaf {
-            output: refund_leaf_output.to_string(),
-            version: refund_leaf_version,
-        },
-    };
-
-    let server_public_key = PublicKey::from_str(server_public_key)?;
-
-    let refund_swap_key =
-        SwapKey::from_chain_account(mnemonic, passphrase, from_network, swap_index)?;
-
-    let refund_public_key = PublicKey {
-        compressed: true,
-        inner: refund_swap_key.keypair.public_key(),
-    };
-
-    let lockup_details = ChainSwapDetails {
-        swap_tree: swap_tree.clone(),
-        lockup_address: user_lockup_address.to_string(),
-        server_public_key,
-        timeout_block_height,
-        amount,
-        blinding_key: blinding_key.map(|k| k.to_string()),
-        refund_address: None,
-        claim_address: None,
-        bip21: None,
-    };
-
-    let lockup_script = SwapScript::chain_from_swap_resp(
-        from_network,
-        boltz_client::boltz::Side::Lockup,
-        lockup_details,
-        refund_public_key,
-    )?;
-
-    let claim_swap_key = SwapKey::from_chain_account(mnemonic, passphrase, to_network, swap_index)?;
-
-    let claim_public_key = PublicKey {
-        compressed: true,
-        inner: claim_swap_key.keypair.public_key(),
-    };
-
-    let claim_details = ChainSwapDetails {
-        swap_tree: swap_tree.clone(),
-        lockup_address: server_lockup_address.to_string(),
-        server_public_key,
-        timeout_block_height,
-        amount,
-        blinding_key: blinding_key.map(|k| k.to_string()),
-        refund_address: None,
-        claim_address: None,
-        bip21: None,
-    };
-
-    let claim_script = SwapScript::chain_from_swap_resp(
-        to_network,
-        boltz_client::boltz::Side::Claim,
-        claim_details,
-        claim_public_key,
-    )?;
-
-    println!("Claim script created: {:?}", claim_script);
-
-    let mut chain_client = ChainClient::new();
-
-    match from_network {
-        Chain::Bitcoin(bitcoin_chain) => {
-            chain_client =
-                chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
-        }
-        Chain::Liquid(liquid_chain) => {
-            chain_client =
-                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
-        }
-    }
-
-    match to_network {
-        Chain::Bitcoin(bitcoin_chain) => {
-            if !matches!(from_network, Chain::Bitcoin(_)) {
-                chain_client =
-                    chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
-            }
-        }
-        Chain::Liquid(liquid_chain) => {
-            if !matches!(from_network, Chain::Liquid(_)) {
-                chain_client =
-                    chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
-            }
-        }
-    }
-
-    let boltz_api = BoltzApiClientV2::new(
-        BOLTZ_MAINNET_URL_V2.to_string(),
-        Some(Duration::from_secs(30)),
-    );
-
-    println!("\n=== Constructing Claim Transaction ===");
-    println!("Swap ID: {}", swap_id);
-    println!("Claim address: {}", claim_address);
-    println!("Direction: {:?} -> {:?}", from_network, to_network);
-
-    let fee = match to_network {
-        Chain::Liquid(_) => Fee::Absolute(30),
-        Chain::Bitcoin(_) => Fee::Absolute(300),
-    };
-
-    let preimage = if let Some(preimage_str) = preimage {
-        Preimage::from_str(preimage_str)?
-    } else {
-        println!(
-            "⚠️  No preimage provided, but cooperative claim will use keypath spending (preimage not needed in witness)"
-        );
-        Preimage::from_vec(vec![0u8; 32])?
-    };
-
-    let swap_params = SwapTransactionParams {
-        keys: claim_swap_key.keypair,
-        output_address: claim_address.to_string(),
-        fee,
-        swap_id: swap_id.to_string(),
-        options: Some(
-            TransactionOptions::default()
-                .with_cooperative(true)
-                .with_chain_claim(refund_swap_key.keypair, lockup_script),
-        ),
-        chain_client: &chain_client,
-        boltz_client: &boltz_api,
-    };
-
-    println!("\nConstructing claim transaction...");
-    let tx = claim_script.construct_claim(&preimage, swap_params).await?;
-
-    println!("Claim transaction constructed successfully!");
-
-    Ok((
-        tx,
-        chain_client,
-        amount,
-        claim_address.to_string(),
-        to_network,
-    ))
-}
+use swap_rescue::{claim_rescue, parse_chain, refund_rescue};
 
 #[derive(Parser)]
-#[command(name = "recover_swap")]
+#[command(name = "swap_rescue")]
 #[command(about = "Recover swap claim or refund transaction", long_about = None)]
 struct Cli {
-    #[arg(short, long, default_value = "config.yaml")]
-    config: String,
+    #[arg(short, long)]
+    config: Option<String>,
+
+    #[arg(long, help = "Launch GUI mode")]
+    gui: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -362,26 +56,46 @@ struct LeafConfig {
     version: u8,
 }
 
-fn parse_chain(input: &str) -> Result<Chain, String> {
-    match input.to_lowercase().as_str() {
-        "bitcoin" | "btc" => Ok(Chain::Bitcoin(BitcoinChain::Bitcoin)),
-        "liquid" | "lbtc" => Ok(Chain::Liquid(LiquidChain::Liquid)),
-        _ => Err(format!(
-            "Invalid chain: {}. Use 'bitcoin' or 'liquid'",
-            input
-        )),
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    println!("=== Swap Rescue Tool ===\n");
-    println!("Reading config from: {}\n", cli.config);
+    // If GUI flag is set or no config provided, launch GUI
+    if cli.gui || cli.config.is_none() {
+        launch_gui();
+        return;
+    }
 
-    let config_content = fs::read_to_string(&cli.config).unwrap_or_else(|e| {
-        eprintln!("Error reading config file {}: {}", cli.config, e);
+    // Otherwise run CLI mode
+    run_cli(cli.config.unwrap()).await;
+}
+
+fn launch_gui() {
+    use iced::{application, window, Font, Settings, Size};
+    use swap_rescue::gui::SwapRescueApp;
+
+    let settings = Settings {
+        default_font: Font::with_name("Golos Text"),
+        ..Default::default()
+    };
+
+    let _ = application(SwapRescueApp::title, SwapRescueApp::update, SwapRescueApp::view)
+        .settings(settings)
+        .window(window::Settings {
+            size: Size::new(800.0, 900.0),
+            min_size: Some(Size::new(600.0, 700.0)),
+            ..Default::default()
+        })
+        .font(include_bytes!("../assets/GolosText-Regular.ttf"))
+        .run_with(SwapRescueApp::new);
+}
+
+async fn run_cli(config_path: String) {
+    println!("=== Swap Rescue Tool ===\n");
+    println!("Reading config from: {}\n", config_path);
+
+    let config_content = fs::read_to_string(&config_path).unwrap_or_else(|e| {
+        eprintln!("Error reading config file {}: {}", config_path, e);
         std::process::exit(1);
     });
 
@@ -389,6 +103,12 @@ async fn main() {
         eprintln!("Error parsing YAML config: {}", e);
         std::process::exit(1);
     });
+
+    // Validate config
+    if let Err(e) = validate_cli_config(&config) {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    }
 
     let from_network = parse_chain(&config.provider_input.from_network_str).unwrap_or_else(|e| {
         eprintln!("Error parsing from_network: {}", e);
@@ -401,18 +121,6 @@ async fn main() {
     });
 
     let rescue_type = config.provider_input.rescue_type.to_lowercase();
-    if rescue_type != "claim" && rescue_type != "refund" {
-        eprintln!(
-            "Error: rescue_type must be either 'claim' or 'refund', got: {}",
-            config.provider_input.rescue_type
-        );
-        std::process::exit(1);
-    }
-
-    if rescue_type == "claim" && config.provider_input.preimage.is_none() {
-        eprintln!("Error: preimage is required for coop claim");
-        std::process::exit(1);
-    }
 
     let result = if rescue_type == "refund" {
         refund_rescue(
@@ -506,4 +214,83 @@ async fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn validate_cli_config(config: &Config) -> Result<(), String> {
+    // Validate user_input
+    if config.user_input.mnemonic.trim().is_empty() {
+        return Err("Error: mnemonic is required in user_input".to_string());
+    }
+
+    if config.user_input.return_address.trim().is_empty() {
+        return Err("Error: return_address is required in user_input".to_string());
+    }
+
+    // Validate provider_input
+    if config.provider_input.rescue_type.trim().is_empty() {
+        return Err("Error: rescue_type is required in provider_input".to_string());
+    }
+
+    let rescue_type = config.provider_input.rescue_type.to_lowercase();
+    if rescue_type != "claim" && rescue_type != "refund" {
+        return Err(format!(
+            "Error: rescue_type must be 'claim' or 'refund', got '{}'",
+            config.provider_input.rescue_type
+        ));
+    }
+
+    if config.provider_input.claim_leaf.output.trim().is_empty() {
+        return Err("Error: claim_leaf.output is required in provider_input".to_string());
+    }
+
+    if config.provider_input.refund_leaf.output.trim().is_empty() {
+        return Err("Error: refund_leaf.output is required in provider_input".to_string());
+    }
+
+    if config.provider_input.from_network_str.trim().is_empty() {
+        return Err("Error: from_network is required in provider_input".to_string());
+    }
+
+    if config.provider_input.to_network_str.trim().is_empty() {
+        return Err("Error: to_network is required in provider_input".to_string());
+    }
+
+    if config.provider_input.timeout_block_height == 0 {
+        return Err("Error: timeout_block_height must be greater than 0 in provider_input".to_string());
+    }
+
+    if config.provider_input.server_public_key.trim().is_empty() {
+        return Err("Error: server_public_key is required in provider_input".to_string());
+    }
+
+    if config.provider_input.user_lockup_address.trim().is_empty() {
+        return Err("Error: user_lockup_address is required in provider_input".to_string());
+    }
+
+    if config.provider_input.server_lockup_address.trim().is_empty() {
+        return Err("Error: server_lockup_address is required in provider_input".to_string());
+    }
+
+    if config.provider_input.amount == 0 {
+        return Err("Error: amount must be greater than 0 in provider_input".to_string());
+    }
+
+    if config.provider_input.swap_id.trim().is_empty() {
+        return Err("Error: swap_id is required in provider_input".to_string());
+    }
+
+    // Validate that preimage is provided if rescue_type is "claim"
+    if rescue_type == "claim" && config.provider_input.preimage.is_none() {
+        return Err("Error: preimage is required in provider_input when rescue_type is 'claim'".to_string());
+    }
+
+    if let Some(preimage) = &config.provider_input.preimage {
+        if preimage.trim().is_empty() {
+            return Err("Error: preimage cannot be empty when provided".to_string());
+        }
+    }
+
+    // Passphrase is optional - no validation needed
+
+    Ok(())
 }

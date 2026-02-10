@@ -10,3 +10,8 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 dialoguer = "0.11"
+bip39 = "2.0"
+bitcoin = "0.32"
+iced = { version = "0.13", features = ["tokio", "advanced"] }
+rfd = "0.15"
+once_cell = "1.20"
