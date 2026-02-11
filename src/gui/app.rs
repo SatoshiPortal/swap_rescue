@@ -287,10 +287,13 @@ impl SwapRescueApp {
         let content = column![header, config_section, logs_section, action_section]
             .spacing(24)
             .padding(Padding::new(20.0))
+            .width(Length::Fill);
+
+        let scrollable_content = scrollable(content)
             .width(Length::Fill)
             .height(Length::Fill);
 
-        container(content)
+        container(scrollable_content)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_theme| container::Style {
