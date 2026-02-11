@@ -2,7 +2,7 @@ use clap::Parser;
 use dialoguer::Confirm;
 use serde::Deserialize;
 use std::fs;
-use swap_rescue::{claim_rescue, parse_chain, refund_rescue};
+use swap_rescue::{claim_rescue, parse_chain, refund_rescue, submarine_refund_rescue};
 
 #[derive(Parser)]
 #[command(name = "swap_rescue")]
@@ -34,6 +34,8 @@ struct UserInput {
 #[derive(Debug, Deserialize)]
 struct ProviderInput {
     rescue_type: String,
+    #[serde(default = "default_swap_type")]
+    swap_type: String,
     claim_leaf: LeafConfig,
     refund_leaf: LeafConfig,
     #[serde(rename = "from_network")]
@@ -44,10 +46,14 @@ struct ProviderInput {
     timeout_block_height: u32,
     server_public_key: String,
     user_lockup_address: String,
-    server_lockup_address: String,
+    server_lockup_address: Option<String>,
     amount: u64,
     swap_id: String,
     preimage: Option<String>,
+}
+
+fn default_swap_type() -> String {
+    "chain".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,34 +121,71 @@ async fn run_cli(config_path: String) {
         std::process::exit(1);
     });
 
-    let to_network = parse_chain(&config.provider_input.to_network_str).unwrap_or_else(|e| {
-        eprintln!("Error parsing to_network: {}", e);
-        std::process::exit(1);
-    });
-
     let rescue_type = config.provider_input.rescue_type.to_lowercase();
+    let swap_type = config.provider_input.swap_type.to_lowercase();
 
     let result = if rescue_type == "refund" {
-        refund_rescue(
-            &config.user_input.mnemonic,
-            &config.provider_input.claim_leaf.output,
-            config.provider_input.claim_leaf.version,
-            &config.provider_input.refund_leaf.output,
-            config.provider_input.refund_leaf.version,
-            config.provider_input.blinding_key.as_deref(),
-            config.provider_input.timeout_block_height,
-            &config.provider_input.server_public_key,
-            &config.provider_input.user_lockup_address,
-            config.provider_input.amount,
-            &config.provider_input.swap_id,
-            &config.user_input.return_address,
-            &config.user_input.passphrase,
-            config.user_input.swap_index,
-            from_network,
-            to_network,
-        )
-        .await
+        if swap_type == "submarine" {
+            // Submarine refund - only uses from_network
+            submarine_refund_rescue(
+                &config.user_input.mnemonic,
+                &config.provider_input.claim_leaf.output,
+                config.provider_input.claim_leaf.version,
+                &config.provider_input.refund_leaf.output,
+                config.provider_input.refund_leaf.version,
+                config.provider_input.blinding_key.as_deref(),
+                config.provider_input.timeout_block_height,
+                &config.provider_input.server_public_key,
+                &config.provider_input.user_lockup_address,
+                config.provider_input.amount,
+                &config.provider_input.swap_id,
+                &config.user_input.return_address,
+                &config.user_input.passphrase,
+                config.user_input.swap_index,
+                from_network,
+            )
+            .await
+        } else {
+            // Chain refund
+            let to_network = parse_chain(&config.provider_input.to_network_str).unwrap_or_else(|e| {
+                eprintln!("Error parsing to_network: {}", e);
+                std::process::exit(1);
+            });
+
+            refund_rescue(
+                &config.user_input.mnemonic,
+                &config.provider_input.claim_leaf.output,
+                config.provider_input.claim_leaf.version,
+                &config.provider_input.refund_leaf.output,
+                config.provider_input.refund_leaf.version,
+                config.provider_input.blinding_key.as_deref(),
+                config.provider_input.timeout_block_height,
+                &config.provider_input.server_public_key,
+                &config.provider_input.user_lockup_address,
+                config.provider_input.amount,
+                &config.provider_input.swap_id,
+                &config.user_input.return_address,
+                &config.user_input.passphrase,
+                config.user_input.swap_index,
+                from_network,
+                to_network,
+            )
+            .await
+        }
     } else {
+        // Claim rescue (only for chain swaps)
+        let to_network = parse_chain(&config.provider_input.to_network_str).unwrap_or_else(|e| {
+            eprintln!("Error parsing to_network: {}", e);
+            std::process::exit(1);
+        });
+
+        let server_lockup_address = config.provider_input.server_lockup_address
+            .as_deref()
+            .unwrap_or_else(|| {
+                eprintln!("Error: server_lockup_address is required for claim rescue");
+                std::process::exit(1);
+            });
+
         claim_rescue(
             &config.user_input.mnemonic,
             &config.provider_input.claim_leaf.output,
@@ -153,7 +196,7 @@ async fn run_cli(config_path: String) {
             config.provider_input.timeout_block_height,
             &config.provider_input.server_public_key,
             &config.provider_input.user_lockup_address,
-            &config.provider_input.server_lockup_address,
+            server_lockup_address,
             config.provider_input.amount,
             &config.provider_input.swap_id,
             &config.user_input.return_address,
@@ -239,6 +282,14 @@ fn validate_cli_config(config: &Config) -> Result<(), String> {
         ));
     }
 
+    let swap_type = config.provider_input.swap_type.to_lowercase();
+    if swap_type != "chain" && swap_type != "submarine" {
+        return Err(format!(
+            "Error: swap_type must be 'chain' or 'submarine', got '{}'",
+            config.provider_input.swap_type
+        ));
+    }
+
     if config.provider_input.claim_leaf.output.trim().is_empty() {
         return Err("Error: claim_leaf.output is required in provider_input".to_string());
     }
@@ -251,8 +302,9 @@ fn validate_cli_config(config: &Config) -> Result<(), String> {
         return Err("Error: from_network is required in provider_input".to_string());
     }
 
-    if config.provider_input.to_network_str.trim().is_empty() {
-        return Err("Error: to_network is required in provider_input".to_string());
+    // For submarine swaps, to_network may not be needed
+    if swap_type == "chain" && config.provider_input.to_network_str.trim().is_empty() {
+        return Err("Error: to_network is required in provider_input for chain swaps".to_string());
     }
 
     if config.provider_input.timeout_block_height == 0 {
@@ -267,8 +319,15 @@ fn validate_cli_config(config: &Config) -> Result<(), String> {
         return Err("Error: user_lockup_address is required in provider_input".to_string());
     }
 
-    if config.provider_input.server_lockup_address.trim().is_empty() {
-        return Err("Error: server_lockup_address is required in provider_input".to_string());
+    // server_lockup_address is only required for chain swaps with claim rescue
+    if swap_type == "chain" && rescue_type == "claim" {
+        if let Some(addr) = &config.provider_input.server_lockup_address {
+            if addr.trim().is_empty() {
+                return Err("Error: server_lockup_address cannot be empty for chain swap claims".to_string());
+            }
+        } else {
+            return Err("Error: server_lockup_address is required for chain swap claims".to_string());
+        }
     }
 
     if config.provider_input.amount == 0 {
@@ -279,9 +338,9 @@ fn validate_cli_config(config: &Config) -> Result<(), String> {
         return Err("Error: swap_id is required in provider_input".to_string());
     }
 
-    // Validate that preimage is provided if rescue_type is "claim"
-    if rescue_type == "claim" && config.provider_input.preimage.is_none() {
-        return Err("Error: preimage is required in provider_input when rescue_type is 'claim'".to_string());
+    // Validate that preimage is provided if rescue_type is "claim" and swap_type is "chain"
+    if rescue_type == "claim" && swap_type == "chain" && config.provider_input.preimage.is_none() {
+        return Err("Error: preimage is required in provider_input when rescue_type is 'claim' for chain swaps".to_string());
     }
 
     if let Some(preimage) = &config.provider_input.preimage {

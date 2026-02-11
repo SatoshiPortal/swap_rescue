@@ -1,6 +1,6 @@
 use boltz_client::PublicKey;
 use boltz_client::boltz::{
-    BOLTZ_MAINNET_URL_V2, BoltzApiClientV2, ChainSwapDetails, Leaf, SwapTree,
+    BOLTZ_MAINNET_URL_V2, BoltzApiClientV2, ChainSwapDetails, CreateSubmarineResponse, Leaf, SwapTree,
 };
 use boltz_client::error::Error;
 use boltz_client::fees::Fee;
@@ -308,6 +308,118 @@ pub async fn claim_rescue(
         amount,
         claim_address.to_string(),
         to_network,
+    ))
+}
+
+pub async fn submarine_refund_rescue(
+    mnemonic: &str,
+    claim_leaf_output: &str,
+    claim_leaf_version: u8,
+    refund_leaf_output: &str,
+    refund_leaf_version: u8,
+    blinding_key: Option<&str>,
+    timeout_block_height: u32,
+    server_public_key: &str,
+    lockup_address: &str,
+    amount: u64,
+    swap_id: &str,
+    refund_address: &str,
+    passphrase: &str,
+    swap_index: u64,
+    network: Chain,
+) -> Result<(BtcLikeTransaction, ChainClient, u64, String, Chain), Error> {
+    let swap_tree = SwapTree {
+        claim_leaf: Leaf {
+            output: claim_leaf_output.to_string(),
+            version: claim_leaf_version,
+        },
+        refund_leaf: Leaf {
+            output: refund_leaf_output.to_string(),
+            version: refund_leaf_version,
+        },
+    };
+
+    let server_public_key = PublicKey::from_str(server_public_key)?;
+
+    let refund_swap_key =
+        SwapKey::from_submarine_account(mnemonic, passphrase, network, swap_index)?;
+
+    let refund_public_key = PublicKey {
+        compressed: true,
+        inner: refund_swap_key.keypair.public_key(),
+    };
+
+    // Construct CreateSubmarineResponse for submarine swaps
+    let submarine_response = CreateSubmarineResponse {
+        accept_zero_conf: false,
+        address: lockup_address.to_string(),
+        bip21: String::new(), // Not needed for refund
+        claim_public_key: server_public_key.clone(),
+        expected_amount: amount,
+        id: swap_id.to_string(),
+        referral_id: None,
+        swap_tree: swap_tree.clone(),
+        timeout_block_height: timeout_block_height as u64,
+        blinding_key: blinding_key.map(|k| k.to_string()),
+    };
+
+    let lockup_script = SwapScript::submarine_from_swap_resp(
+        network,
+        &submarine_response,
+        refund_public_key,
+    )?;
+
+    println!("Lockup script created (submarine): {:?}", lockup_script);
+
+    let mut chain_client = ChainClient::new();
+
+    match network {
+        Chain::Bitcoin(bitcoin_chain) => {
+            chain_client =
+                chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
+        }
+        Chain::Liquid(liquid_chain) => {
+            chain_client =
+                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+        }
+    }
+
+    let boltz_api = BoltzApiClientV2::new(
+        BOLTZ_MAINNET_URL_V2.to_string(),
+        Some(Duration::from_secs(30)),
+    );
+
+    println!("\n=== Constructing Submarine Refund Transaction ===");
+    println!("Swap ID: {}", swap_id);
+    println!("Refund address: {}", refund_address);
+    println!("Network: {:?}", network);
+
+    let fee = match network {
+        Chain::Liquid(_) => Fee::Absolute(30),
+        Chain::Bitcoin(_) => Fee::Absolute(300),
+    };
+
+    let swap_params = SwapTransactionParams {
+        keys: refund_swap_key.keypair,
+        output_address: refund_address.to_string(),
+        fee,
+        swap_id: swap_id.to_string(),
+        options: Some(TransactionOptions::default().with_cooperative(true)),
+        chain_client: &chain_client,
+        boltz_client: &boltz_api,
+    };
+
+    println!("\nConstructing submarine refund transaction...");
+    let tx = lockup_script.construct_refund(swap_params).await?;
+
+    println!("Submarine refund transaction constructed successfully!");
+
+    Ok((
+        tx,
+        chain_client,
+        amount,
+        refund_address.to_string(),
+        network,
     ))
 }
 

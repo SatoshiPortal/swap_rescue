@@ -2,7 +2,7 @@ use crate::gui::styles::*;
 use boltz_client::swaps::{BtcLikeTransaction, ChainClient};
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, row, scrollable, text, text_input, Column, Space};
-use iced::{Border, Color, Element, Font, Length, Padding, Task};
+use iced::{Color, Element, Font, Length, Padding, Task};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -58,6 +58,8 @@ pub struct UserInput {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderInput {
     pub rescue_type: String,
+    #[serde(default = "default_swap_type")]
+    pub swap_type: String,
     pub claim_leaf: LeafConfig,
     pub refund_leaf: LeafConfig,
     #[serde(rename = "from_network")]
@@ -68,10 +70,14 @@ pub struct ProviderInput {
     pub timeout_block_height: u32,
     pub server_public_key: String,
     pub user_lockup_address: String,
-    pub server_lockup_address: String,
+    pub server_lockup_address: Option<String>,
     pub amount: u64,
     pub swap_id: String,
     pub preimage: Option<String>,
+}
+
+fn default_swap_type() -> String {
+    "chain".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -319,9 +325,22 @@ impl SwapRescueApp {
                         .color(TEXT),
                 ]
                 .spacing(12),
-                // Type row
+                // Swap Type row
                 row![
-                    text("Type")
+                    text("Swap Type")
+                        .size(14)
+                        .font(GOLOS_TEXT)
+                        .color(GREY_DARK)
+                        .width(Length::Fixed(100.0)),
+                    text(config.provider_input.swap_type.to_uppercase())
+                        .size(14)
+                        .font(GOLOS_TEXT)
+                        .color(TEXT),
+                ]
+                .spacing(12),
+                // Rescue Type row
+                row![
+                    text("Rescue Type")
                         .size(14)
                         .font(GOLOS_TEXT)
                         .color(GREY_DARK)
@@ -816,6 +835,14 @@ fn validate_config(config: &Config) -> Result<(), String> {
         ));
     }
 
+    let swap_type = config.provider_input.swap_type.to_lowercase();
+    if swap_type != "chain" && swap_type != "submarine" {
+        return Err(format!(
+            "Error: swap_type must be 'chain' or 'submarine', got '{}'",
+            config.provider_input.swap_type
+        ));
+    }
+
     if config.provider_input.claim_leaf.output.trim().is_empty() {
         return Err("Error: claim_leaf.output is required in provider_input".to_string());
     }
@@ -828,8 +855,9 @@ fn validate_config(config: &Config) -> Result<(), String> {
         return Err("Error: from_network is required in provider_input".to_string());
     }
 
-    if config.provider_input.to_network_str.trim().is_empty() {
-        return Err("Error: to_network is required in provider_input".to_string());
+    // For submarine swaps, to_network may not be needed, but we'll keep it for now
+    if swap_type == "chain" && config.provider_input.to_network_str.trim().is_empty() {
+        return Err("Error: to_network is required in provider_input for chain swaps".to_string());
     }
 
     if config.provider_input.timeout_block_height == 0 {
@@ -844,8 +872,15 @@ fn validate_config(config: &Config) -> Result<(), String> {
         return Err("Error: user_lockup_address is required in provider_input".to_string());
     }
 
-    if config.provider_input.server_lockup_address.trim().is_empty() {
-        return Err("Error: server_lockup_address is required in provider_input".to_string());
+    // server_lockup_address is only required for chain swaps with claim rescue
+    if swap_type == "chain" && rescue_type == "claim" {
+        if let Some(addr) = &config.provider_input.server_lockup_address {
+            if addr.trim().is_empty() {
+                return Err("Error: server_lockup_address cannot be empty for chain swap claims".to_string());
+            }
+        } else {
+            return Err("Error: server_lockup_address is required for chain swap claims".to_string());
+        }
     }
 
     if config.provider_input.amount == 0 {
@@ -856,9 +891,9 @@ fn validate_config(config: &Config) -> Result<(), String> {
         return Err("Error: swap_id is required in provider_input".to_string());
     }
 
-    // Validate that preimage is provided if rescue_type is "claim"
-    if rescue_type == "claim" && config.provider_input.preimage.is_none() {
-        return Err("Error: preimage is required in provider_input when rescue_type is 'claim'".to_string());
+    // Validate that preimage is provided if rescue_type is "claim" and swap_type is "chain"
+    if rescue_type == "claim" && swap_type == "chain" && config.provider_input.preimage.is_none() {
+        return Err("Error: preimage is required in provider_input when rescue_type is 'claim' for chain swaps".to_string());
     }
 
     if let Some(preimage) = &config.provider_input.preimage {
@@ -873,37 +908,69 @@ fn validate_config(config: &Config) -> Result<(), String> {
 }
 
 async fn execute_rescue(config: Config) -> Result<RescueSummary, String> {
-    use crate::{claim_rescue, parse_chain, refund_rescue};
+    use crate::{claim_rescue, parse_chain, refund_rescue, submarine_refund_rescue};
 
     let from_network = parse_chain(&config.provider_input.from_network_str)
         .map_err(|e| format!("Invalid from_network: {}", e))?;
 
-    let to_network = parse_chain(&config.provider_input.to_network_str)
-        .map_err(|e| format!("Invalid to_network: {}", e))?;
-
     let rescue_type = config.provider_input.rescue_type.to_lowercase();
+    let swap_type = config.provider_input.swap_type.to_lowercase();
 
     let result = if rescue_type == "refund" {
-        refund_rescue(
-            &config.user_input.mnemonic,
-            &config.provider_input.claim_leaf.output,
-            config.provider_input.claim_leaf.version,
-            &config.provider_input.refund_leaf.output,
-            config.provider_input.refund_leaf.version,
-            config.provider_input.blinding_key.as_deref(),
-            config.provider_input.timeout_block_height,
-            &config.provider_input.server_public_key,
-            &config.provider_input.user_lockup_address,
-            config.provider_input.amount,
-            &config.provider_input.swap_id,
-            &config.user_input.return_address,
-            &config.user_input.passphrase,
-            config.user_input.swap_index,
-            from_network,
-            to_network,
-        )
-        .await
+        if swap_type == "submarine" {
+            // Submarine refund - only uses from_network
+            submarine_refund_rescue(
+                &config.user_input.mnemonic,
+                &config.provider_input.claim_leaf.output,
+                config.provider_input.claim_leaf.version,
+                &config.provider_input.refund_leaf.output,
+                config.provider_input.refund_leaf.version,
+                config.provider_input.blinding_key.as_deref(),
+                config.provider_input.timeout_block_height,
+                &config.provider_input.server_public_key,
+                &config.provider_input.user_lockup_address,
+                config.provider_input.amount,
+                &config.provider_input.swap_id,
+                &config.user_input.return_address,
+                &config.user_input.passphrase,
+                config.user_input.swap_index,
+                from_network,
+            )
+            .await
+        } else {
+            // Chain refund
+            let to_network = parse_chain(&config.provider_input.to_network_str)
+                .map_err(|e| format!("Invalid to_network: {}", e))?;
+
+            refund_rescue(
+                &config.user_input.mnemonic,
+                &config.provider_input.claim_leaf.output,
+                config.provider_input.claim_leaf.version,
+                &config.provider_input.refund_leaf.output,
+                config.provider_input.refund_leaf.version,
+                config.provider_input.blinding_key.as_deref(),
+                config.provider_input.timeout_block_height,
+                &config.provider_input.server_public_key,
+                &config.provider_input.user_lockup_address,
+                config.provider_input.amount,
+                &config.provider_input.swap_id,
+                &config.user_input.return_address,
+                &config.user_input.passphrase,
+                config.user_input.swap_index,
+                from_network,
+                to_network,
+            )
+            .await
+        }
     } else {
+        // Claim rescue (only for chain swaps)
+        let to_network = parse_chain(&config.provider_input.to_network_str)
+            .map_err(|e| format!("Invalid to_network: {}", e))?;
+
+        let server_lockup_address = config.provider_input.server_lockup_address
+            .as_deref()
+            .ok_or_else(|| "server_lockup_address is required for claim rescue".to_string())?;
+
         claim_rescue(
             &config.user_input.mnemonic,
             &config.provider_input.claim_leaf.output,
@@ -914,7 +981,7 @@ async fn execute_rescue(config: Config) -> Result<RescueSummary, String> {
             config.provider_input.timeout_block_height,
             &config.provider_input.server_public_key,
             &config.provider_input.user_lockup_address,
-            &config.provider_input.server_lockup_address,
+            server_lockup_address,
             config.provider_input.amount,
             &config.provider_input.swap_id,
             &config.user_input.return_address,
@@ -934,7 +1001,7 @@ async fn execute_rescue(config: Config) -> Result<RescueSummary, String> {
                 return_address: return_address.clone(),
                 network: format!("{:?}", network),
                 swap_id: config.provider_input.swap_id.clone(),
-                rescue_type: rescue_type.clone(),
+                rescue_type: format!("{} {}", swap_type, rescue_type),
             };
 
             // Store the transaction and chain_client in global storage for later broadcast
