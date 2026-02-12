@@ -7,6 +7,8 @@ use boltz_client::fees::Fee;
 use boltz_client::network::electrum::{ElectrumBitcoinClient, ElectrumLiquidClient};
 use boltz_client::network::{BitcoinChain, Chain, LiquidChain};
 use boltz_client::swaps::BtcLikeTransaction;
+use boltz_client::swaps::bitcoin::{BtcSwapScript, BtcSwapTx};
+use boltz_client::swaps::liquid::{LBtcSwapScript, LBtcSwapTx};
 use boltz_client::swaps::{ChainClient, SwapScript, SwapTransactionParams, TransactionOptions};
 use boltz_client::util::secrets::{Preimage, SwapKey};
 use std::str::FromStr;
@@ -363,14 +365,6 @@ pub async fn submarine_refund_rescue(
         blinding_key: blinding_key.map(|k| k.to_string()),
     };
 
-    let lockup_script = SwapScript::submarine_from_swap_resp(
-        network,
-        &submarine_response,
-        refund_public_key,
-    )?;
-
-    println!("Lockup script created (submarine): {:?}", lockup_script);
-
     let mut chain_client = ChainClient::new();
 
     match network {
@@ -399,18 +393,54 @@ pub async fn submarine_refund_rescue(
         Chain::Bitcoin(_) => Fee::Absolute(300),
     };
 
-    let swap_params = SwapTransactionParams {
-        keys: refund_swap_key.keypair,
-        output_address: refund_address.to_string(),
-        fee,
-        swap_id: swap_id.to_string(),
-        options: Some(TransactionOptions::default().with_cooperative(true)),
-        chain_client: &chain_client,
-        boltz_client: &boltz_api,
-    };
-
     println!("\nConstructing submarine refund transaction...");
-    let tx = lockup_script.construct_refund(swap_params).await?;
+
+    let tx = match network {
+        Chain::Liquid(_) => {
+            let lockup_script = LBtcSwapScript::submarine_from_swap_resp(
+                &submarine_response,
+                refund_public_key,
+            )?;
+
+            println!("Lockup script created (submarine Liquid): {:?}", lockup_script);
+
+            let liquid_client = chain_client.liquid_client()
+                .ok_or_else(|| Error::Protocol("Liquid client not initialized".to_string()))?;
+
+            let swap_tx = LBtcSwapTx::new_refund(
+                lockup_script,
+                refund_address,
+                liquid_client,
+                &boltz_api,
+                swap_id.to_string(),
+            ).await?;
+
+            let signed_tx = swap_tx.sign_refund(&refund_swap_key.keypair, fee, None, true).await?;
+            BtcLikeTransaction::liquid(signed_tx)
+        }
+        Chain::Bitcoin(_) => {
+            let lockup_script = BtcSwapScript::submarine_from_swap_resp(
+                &submarine_response,
+                refund_public_key,
+            )?;
+
+            println!("Lockup script created (submarine Bitcoin): {:?}", lockup_script);
+
+            let bitcoin_client = chain_client.bitcoin_client()
+                .ok_or_else(|| Error::Protocol("Bitcoin client not initialized".to_string()))?;
+
+            let swap_tx = BtcSwapTx::new_refund(
+                lockup_script,
+                refund_address,
+                bitcoin_client,
+                &boltz_api,
+                swap_id.to_string(),
+            ).await?;
+
+            let signed_tx = swap_tx.sign_refund(&refund_swap_key.keypair, fee, None).await?;
+            BtcLikeTransaction::bitcoin(signed_tx)
+        }
+    };
 
     println!("Submarine refund transaction constructed successfully!");
 
