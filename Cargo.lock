@@ -423,6 +423,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base85"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36915bbaca237c626689b5bd14d02f2ba7a5a359d30a2a08be697392e3718079"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "bech32"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -443,6 +452,19 @@ dependencies = [
  "bitcoin_hashes 0.13.0",
  "serde",
  "unicode-normalization",
+]
+
+[[package]]
+name = "bip85_extended"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f300582d6cf7cb4b1f59971f14b4353015a3538b3aa048e3de85c7ef80ac34c9"
+dependencies = [
+ "base64 0.22.1",
+ "base85",
+ "bip39",
+ "bitcoin",
+ "sha3",
 ]
 
 [[package]]
@@ -606,12 +628,14 @@ dependencies = [
 
 [[package]]
 name = "boltz-client"
-version = "0.3.0"
-source = "git+https://github.com/SatoshiPortal/boltz-rust.git#d911a524423814a7d3a06ea69c62c4e7f7b2eb6f"
+version = "0.3.1"
+source = "git+https://github.com/SatoshiPortal/boltz-rust.git#19fc149ee37833e9faf5003887edafb9f3b85961"
 dependencies = [
  "async-trait",
  "bip39",
+ "bip85_extended",
  "bitcoin",
+ "boltz-client-macros",
  "electrum-client",
  "elements",
  "env_logger",
@@ -623,7 +647,6 @@ dependencies = [
  "lightning-invoice",
  "lnurl-rs",
  "log",
- "macros",
  "reqwest",
  "secp256k1 0.32.0-beta.2",
  "serde",
@@ -632,6 +655,17 @@ dependencies = [
  "url",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "boltz-client-macros"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bae3bbd82eb8c315b3b120d7cb1a8adef85003216315c42e23abead43ae3835"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.109",
 ]
 
 [[package]]
@@ -2408,6 +2442,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+dependencies = [
+ "cpufeatures",
+]
+
+[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2568,16 +2611,6 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
-
-[[package]]
-name = "macros"
-version = "0.0.0"
-source = "git+https://github.com/SatoshiPortal/boltz-rust.git#d911a524423814a7d3a06ea69c62c4e7f7b2eb6f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.109",
-]
 
 [[package]]
 name = "malloc_buf"
@@ -4131,6 +4164,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
 ]
 
 [[package]]
