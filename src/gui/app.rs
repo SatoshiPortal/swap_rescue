@@ -267,7 +267,7 @@ impl SwapRescueApp {
         self.logs.push(message.to_string());
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let title = text("Swap Rescue Tool")
             .size(32)
             .font(GOLOS_TEXT)
@@ -309,7 +309,7 @@ impl SwapRescueApp {
             .into()
     }
 
-    fn build_config_section(&self) -> Element<Message> {
+    fn build_config_section(&self) -> Element<'_, Message> {
         let config_status = if let Some(config) = &self.config {
             column![
                 // Swap ID row
@@ -509,7 +509,7 @@ impl SwapRescueApp {
         .into()
     }
 
-    fn build_logs_section(&self) -> Element<Message> {
+    fn build_logs_section(&self) -> Element<'_, Message> {
         let logs_header = row![
             text("Logs").size(18).font(GOLOS_TEXT).color(TEXT),
             Space::with_width(Length::Fill),
@@ -610,7 +610,7 @@ impl SwapRescueApp {
             .into()
     }
 
-    fn build_action_section(&self) -> Element<Message> {
+    fn build_action_section(&self) -> Element<'_, Message> {
         let buttons: Element<Message> = match self.state {
             AppState::Idle => row![].into(),
             AppState::ConfigLoaded => {

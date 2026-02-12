@@ -86,8 +86,13 @@ pub async fn refund_rescue(
                 chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
         }
         Chain::Liquid(liquid_chain) => {
-            chain_client =
-                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+            chain_client = chain_client.with_liquid(ElectrumLiquidClient::new(
+                liquid_chain,
+                "les.bullbitcoin.com:995",
+                true,  // use SSL
+                false, // do not validate domain
+                30,    // timeout in seconds
+            )?);
         }
     }
 
@@ -101,7 +106,13 @@ pub async fn refund_rescue(
         Chain::Liquid(liquid_chain) => {
             if !matches!(from_network, Chain::Liquid(_)) {
                 chain_client =
-                    chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+                    chain_client.with_liquid(ElectrumLiquidClient::new(
+                        liquid_chain,
+                        "les.bullbitcoin.com:995",
+                        true,  // use SSL
+                        false, // do not validate domain
+                        30,    // timeout in seconds
+                    )?);
             }
         }
     }
@@ -242,7 +253,13 @@ pub async fn claim_rescue(
         }
         Chain::Liquid(liquid_chain) => {
             chain_client =
-                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+                chain_client.with_liquid(ElectrumLiquidClient::new(
+                    liquid_chain,
+                    "les.bullbitcoin.com:995",
+                    true,  // use SSL
+                    false, // do not validate domain
+                    30,    // timeout in seconds
+                )?);
         }
     }
 
@@ -256,7 +273,13 @@ pub async fn claim_rescue(
         Chain::Liquid(liquid_chain) => {
             if !matches!(from_network, Chain::Liquid(_)) {
                 chain_client =
-                    chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+                    chain_client.with_liquid(ElectrumLiquidClient::new(
+                        liquid_chain,
+                        "les.bullbitcoin.com:995",
+                        true,  // use SSL
+                        false, // do not validate domain
+                        30,    // timeout in seconds
+                    )?);
             }
         }
     }
@@ -374,7 +397,13 @@ pub async fn submarine_refund_rescue(
         }
         Chain::Liquid(liquid_chain) => {
             chain_client =
-                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+                chain_client.with_liquid(ElectrumLiquidClient::new(
+                    liquid_chain,
+                    "les.bullbitcoin.com:995",
+                    true,  // use SSL
+                    false, // do not validate domain
+                    30,    // timeout in seconds
+                )?);
         }
     }
 
