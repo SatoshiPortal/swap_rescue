@@ -88,9 +88,9 @@ pub async fn refund_rescue(
         Chain::Liquid(liquid_chain) => {
             chain_client = chain_client.with_liquid(ElectrumLiquidClient::new(
                 liquid_chain,
-                "blockstream.info:995",
-                true,  // use SSL
-                false, // do not validate domain
+                "blockstream.info:195",
+                false, // no SSL
+                false, // no validation needed
                 60,    // timeout in seconds
             )?);
         }
@@ -108,9 +108,9 @@ pub async fn refund_rescue(
                 chain_client =
                     chain_client.with_liquid(ElectrumLiquidClient::new(
                         liquid_chain,
-                        "blockstream.info:995",
-                        true,  // use SSL
-                        false, // do not validate domain
+                        "blockstream.info:195",
+                        false, // no SSL
+                        true,  // validate domain
                         60,    // timeout in seconds
                     )?);
             }
@@ -255,9 +255,9 @@ pub async fn claim_rescue(
             chain_client =
                 chain_client.with_liquid(ElectrumLiquidClient::new(
                     liquid_chain,
-                    "blockstream.info:995",
-                    true,  // use SSL
-                    false, // do not validate domain
+                    "blockstream.info:195",
+                    false, // no SSL
+                    true,  // validate domain
                     60,    // timeout in seconds
                 )?);
         }
@@ -275,9 +275,9 @@ pub async fn claim_rescue(
                 chain_client =
                     chain_client.with_liquid(ElectrumLiquidClient::new(
                         liquid_chain,
-                        "blockstream.info:995",
-                        true,  // use SSL
-                        false, // do not validate domain
+                        "blockstream.info:195",
+                        false, // no SSL
+                        true,  // validate domain
                         60,    // timeout in seconds
                     )?);
             }
@@ -399,9 +399,9 @@ pub async fn submarine_refund_rescue(
             chain_client =
                 chain_client.with_liquid(ElectrumLiquidClient::new(
                     liquid_chain,
-                    "blockstream.info:995",
-                    true,  // use SSL
-                    false, // do not validate domain
+                    "blockstream.info:195",
+                    false, // no SSL
+                    true,  // validate domain
                     60,    // timeout in seconds
                 )?);
         }
