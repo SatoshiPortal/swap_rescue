@@ -9,7 +9,7 @@ use boltz_client::network::{BitcoinChain, Chain, LiquidChain};
 use boltz_client::swaps::BtcLikeTransaction;
 use boltz_client::swaps::bitcoin::{BtcSwapScript, BtcSwapTx};
 use boltz_client::swaps::liquid::{LBtcSwapScript, LBtcSwapTx};
-use boltz_client::swaps::{ChainClient, SwapScript, SwapTransactionParams, TransactionOptions};
+use boltz_client::swaps::{ChainClient, Cooperative, SwapScript, SwapTransactionParams, TransactionOptions};
 use boltz_client::util::secrets::{Preimage, SwapKey};
 use std::str::FromStr;
 use std::time::Duration;
@@ -110,7 +110,7 @@ pub async fn refund_rescue(
                         liquid_chain,
                         "blockstream.info:195",
                         false, // no SSL
-                        true,  // validate domain
+                        false, // no validation needed
                         60,    // timeout in seconds
                     )?);
             }
@@ -257,7 +257,7 @@ pub async fn claim_rescue(
                     liquid_chain,
                     "blockstream.info:195",
                     false, // no SSL
-                    true,  // validate domain
+                    false, // no validation needed
                     60,    // timeout in seconds
                 )?);
         }
@@ -277,7 +277,7 @@ pub async fn claim_rescue(
                         liquid_chain,
                         "blockstream.info:195",
                         false, // no SSL
-                        true,  // validate domain
+                        false, // no validation needed
                         60,    // timeout in seconds
                     )?);
             }
@@ -401,7 +401,7 @@ pub async fn submarine_refund_rescue(
                     liquid_chain,
                     "blockstream.info:195",
                     false, // no SSL
-                    true,  // validate domain
+                    false, // no validation needed
                     60,    // timeout in seconds
                 )?);
         }
@@ -444,8 +444,27 @@ pub async fn submarine_refund_rescue(
                 swap_id.to_string(),
             ).await?;
 
-            let signed_tx = swap_tx.sign_refund(&refund_swap_key.keypair, fee, None, true).await?;
-            BtcLikeTransaction::liquid(signed_tx)
+            let signed = match swap_tx
+                .sign_refund(
+                    &refund_swap_key.keypair,
+                    fee.into(),
+                    if true {
+                        Some(Cooperative {
+                            boltz_api: &boltz_api,
+                            swap_id: swap_id.to_string(),
+                            signature: None,
+                        })
+                    } else {
+                        None
+                    },
+                    true,
+                )
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => return Err(e.into()),
+            };
+            BtcLikeTransaction::liquid(signed)
         }
         Chain::Bitcoin(_) => {
             let lockup_script = BtcSwapScript::submarine_from_swap_resp(
@@ -466,8 +485,27 @@ pub async fn submarine_refund_rescue(
                 swap_id.to_string(),
             ).await?;
 
-            let signed_tx = swap_tx.sign_refund(&refund_swap_key.keypair, fee, None).await?;
-            BtcLikeTransaction::bitcoin(signed_tx)
+            let signed = match swap_tx
+                .sign_refund(
+                    &refund_swap_key.keypair,
+                    fee.into(),
+                    if true {
+                        Some(Cooperative {
+                            boltz_api: &boltz_api,
+                            swap_id: swap_id.to_string(),
+                            signature: None,
+                        })
+                    } else {
+                        None
+                    },
+                    true,
+                )
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => return Err(e.into()),
+            };
+            BtcLikeTransaction::bitcoin(signed)
         }
     };
 
