@@ -90,8 +90,8 @@ pub async fn refund_rescue(
                 liquid_chain,
                 "les.bullbitcoin.com:995",
                 true,  // use SSL
-                false, // do not validate domain
-                30,    // timeout in seconds
+                true,  // validate domain (required by BullBitcoin)
+                60,    // timeout in seconds
             )?);
         }
     }
@@ -110,8 +110,8 @@ pub async fn refund_rescue(
                         liquid_chain,
                         "les.bullbitcoin.com:995",
                         true,  // use SSL
-                        false, // do not validate domain
-                        30,    // timeout in seconds
+                        true,  // validate domain (required by BullBitcoin)
+                        60,    // timeout in seconds
                     )?);
             }
         }
@@ -257,8 +257,8 @@ pub async fn claim_rescue(
                     liquid_chain,
                     "les.bullbitcoin.com:995",
                     true,  // use SSL
-                    false, // do not validate domain
-                    30,    // timeout in seconds
+                    true,  // validate domain (required by BullBitcoin)
+                    60,    // timeout in seconds
                 )?);
         }
     }
@@ -277,8 +277,8 @@ pub async fn claim_rescue(
                         liquid_chain,
                         "les.bullbitcoin.com:995",
                         true,  // use SSL
-                        false, // do not validate domain
-                        30,    // timeout in seconds
+                        true,  // validate domain (required by BullBitcoin)
+                        60,    // timeout in seconds
                     )?);
             }
         }
@@ -401,8 +401,8 @@ pub async fn submarine_refund_rescue(
                     liquid_chain,
                     "les.bullbitcoin.com:995",
                     true,  // use SSL
-                    false, // do not validate domain
-                    30,    // timeout in seconds
+                    true,  // validate domain (required by BullBitcoin)
+                    60,    // timeout in seconds
                 )?);
         }
     }
