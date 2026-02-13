@@ -9,7 +9,8 @@ use boltz_client::network::{BitcoinChain, Chain, LiquidChain};
 use boltz_client::swaps::BtcLikeTransaction;
 use boltz_client::swaps::bitcoin::{BtcSwapScript, BtcSwapTx};
 use boltz_client::swaps::liquid::{LBtcSwapScript, LBtcSwapTx};
-use boltz_client::swaps::{ChainClient, Cooperative, SwapScript, SwapTransactionParams, TransactionOptions};
+use boltz_client::boltz::Cooperative;
+use boltz_client::swaps::{ChainClient, SwapScript, SwapTransactionParams, TransactionOptions};
 use boltz_client::util::secrets::{Preimage, SwapKey};
 use std::str::FromStr;
 use std::time::Duration;
@@ -498,7 +499,6 @@ pub async fn submarine_refund_rescue(
                     } else {
                         None
                     },
-                    true,
                 )
                 .await
             {
