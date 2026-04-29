@@ -1,7 +1,7 @@
 use crate::gui::styles::*;
 use boltz_client::swaps::{BtcLikeTransaction, ChainClient};
 use iced::alignment::{Horizontal, Vertical};
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Column, Space};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, toggler, Column, Space};
 use iced::{Color, Element, Font, Length, Padding, Task};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -21,7 +21,12 @@ pub enum Message {
     SwapIndexChanged(String),
     IncrementSwapIndex,
     DecrementSwapIndex,
+    ToggleAutoIncrement(bool),
+    MaxSwapIndexChanged(String),
     ClearLogs,
+    CopyLogs,
+    SaveLogs,
+    LogsSaved(Result<String, String>),
     ExecuteRescue,
     RescueCompleted(Result<RescueSummary, String>),
     ConfirmBroadcast,
@@ -103,7 +108,12 @@ pub struct SwapRescueApp {
     logs: Vec<String>,
     error_message: Option<String>,
     swap_index_override: u64, // Allow user to override swap_index from GUI
+    auto_increment: bool,
+    max_swap_index: u64,
+    max_swap_index_input: String,
 }
+
+const DEFAULT_MAX_SWAP_INDEX: u64 = 210;
 
 impl Default for SwapRescueApp {
     fn default() -> Self {
@@ -113,6 +123,9 @@ impl Default for SwapRescueApp {
             logs: Vec::new(),
             error_message: None,
             swap_index_override: 0,
+            auto_increment: false,
+            max_swap_index: DEFAULT_MAX_SWAP_INDEX,
+            max_swap_index_input: DEFAULT_MAX_SWAP_INDEX.to_string(),
         }
     }
 }
@@ -181,8 +194,55 @@ impl SwapRescueApp {
                 }
                 Task::none()
             }
+            Message::ToggleAutoIncrement(enabled) => {
+                self.auto_increment = enabled;
+                if enabled {
+                    self.append_log(&format!(
+                        "Auto-increment enabled (max index: {})",
+                        self.max_swap_index
+                    ));
+                } else {
+                    self.append_log("Auto-increment disabled");
+                }
+                Task::none()
+            }
+            Message::MaxSwapIndexChanged(value) => {
+                self.max_swap_index_input = value.clone();
+                if value.trim().is_empty() {
+                    self.max_swap_index = DEFAULT_MAX_SWAP_INDEX;
+                } else if let Ok(parsed) = value.parse::<u64>() {
+                    self.max_swap_index = parsed;
+                }
+                Task::none()
+            }
             Message::ClearLogs => {
                 self.logs.clear();
+                Task::none()
+            }
+            Message::CopyLogs => {
+                if self.logs.is_empty() {
+                    self.append_log("No logs to copy");
+                    Task::none()
+                } else {
+                    let content = self.logs.join("\n");
+                    self.append_log("✓ Logs copied to clipboard");
+                    iced::clipboard::write(content)
+                }
+            }
+            Message::SaveLogs => {
+                if self.logs.is_empty() {
+                    self.append_log("No logs to save");
+                    Task::none()
+                } else {
+                    let content = self.logs.join("\n");
+                    Task::perform(save_logs_to_file(content), Message::LogsSaved)
+                }
+            }
+            Message::LogsSaved(result) => {
+                match result {
+                    Ok(path) => self.append_log(&format!("✓ Logs saved to {}", path)),
+                    Err(e) => self.append_log(&format!("✗ Save failed: {}", e)),
+                }
                 Task::none()
             }
             Message::ExecuteRescue => {
@@ -218,14 +278,33 @@ impl SwapRescueApp {
                         // Store the summary - the actual tx and chain_client are stored separately
                         self.state = AppState::AwaitingConfirmation;
                         self.error_message = None;
+                        Task::none()
                     }
                     Err(e) => {
                         self.append_log(&format!("✗ Error: {}", e));
+
+                        if self.auto_increment && self.swap_index_override < self.max_swap_index {
+                            self.swap_index_override += 1;
+                            self.append_log(&format!(
+                                "↻ Auto-increment: retrying with swap index {} (max {})",
+                                self.swap_index_override, self.max_swap_index
+                            ));
+                            self.error_message = None;
+                            return Task::done(Message::ExecuteRescue);
+                        }
+
+                        if self.auto_increment {
+                            self.append_log(&format!(
+                                "✗ Auto-increment stopped: reached max index {}",
+                                self.max_swap_index
+                            ));
+                        }
+
                         self.error_message = Some(e);
                         self.state = AppState::Error;
+                        Task::none()
                     }
                 }
-                Task::none()
             }
             Message::ConfirmBroadcast => {
                 self.state = AppState::Broadcasting;
@@ -470,6 +549,22 @@ impl SwapRescueApp {
                 .padding(8)
                 .on_input(Message::SwapIndexChanged);
 
+            let auto_toggle = toggler(self.auto_increment)
+                .label("Auto-increment on failure")
+                .text_size(14)
+                .font(GOLOS_TEXT)
+                .on_toggle(Message::ToggleAutoIncrement);
+
+            let max_index_input = text_input(
+                &DEFAULT_MAX_SWAP_INDEX.to_string(),
+                &self.max_swap_index_input,
+            )
+            .size(16)
+            .font(GOLOS_TEXT)
+            .width(Length::Fixed(80.0))
+            .padding(8)
+            .on_input(Message::MaxSwapIndexChanged);
+
             column![
                 Space::with_height(16),
                 text("Swap Index")
@@ -484,6 +579,25 @@ impl SwapRescueApp {
                     .size(12)
                     .font(GOLOS_TEXT)
                     .color(TEXT_MUTED),
+                Space::with_height(12),
+                row![
+                    auto_toggle,
+                    Space::with_width(Length::Fill),
+                    text("Max")
+                        .size(14)
+                        .font(GOLOS_TEXT)
+                        .color(TEXT_MUTED),
+                    max_index_input,
+                ]
+                .spacing(8)
+                .align_y(Vertical::Center),
+                text(format!(
+                    "When enabled, retries with swap_index + 1 up to max ({}) if rescue fails",
+                    self.max_swap_index
+                ))
+                .size(12)
+                .font(GOLOS_TEXT)
+                .color(TEXT_MUTED),
             ]
             .spacing(4)
         } else {
@@ -510,11 +624,10 @@ impl SwapRescueApp {
     }
 
     fn build_logs_section(&self) -> Element<'_, Message> {
-        let logs_header = row![
-            text("Logs").size(18).font(GOLOS_TEXT).color(TEXT),
-            Space::with_width(Length::Fill),
+        let small_red_btn = |label: &str, msg: Message| {
+            let owned = label.to_string();
             button(
-                text("Clear")
+                text(owned)
                     .size(14)
                     .font(GOLOS_TEXT)
                     .align_x(Horizontal::Center),
@@ -543,8 +656,17 @@ impl SwapRescueApp {
                     _ => base,
                 }
             })
-            .on_press(Message::ClearLogs),
+            .on_press(msg)
+        };
+
+        let logs_header = row![
+            text("Logs").size(18).font(GOLOS_TEXT).color(TEXT),
+            Space::with_width(Length::Fill),
+            small_red_btn("Copy", Message::CopyLogs),
+            small_red_btn("Save", Message::SaveLogs),
+            small_red_btn("Clear", Message::ClearLogs),
         ]
+        .spacing(8)
         .align_y(Vertical::Center);
 
         let log_content: Element<_> = if self.logs.is_empty() {
@@ -787,6 +909,24 @@ impl SwapRescueApp {
             .padding(Padding::new(0.0).top(10.0).bottom(10.0))
             .align_x(Horizontal::Center)
             .into()
+    }
+}
+
+async fn save_logs_to_file(content: String) -> Result<String, String> {
+    let file_handle = rfd::AsyncFileDialog::new()
+        .add_filter("Text", &["txt", "log"])
+        .set_file_name("swap_rescue_logs.txt")
+        .set_title("Save logs as...")
+        .save_file()
+        .await;
+
+    if let Some(file) = file_handle {
+        file.write(content.as_bytes())
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
+        Ok(file.path().display().to_string())
+    } else {
+        Err("Save cancelled".to_string())
     }
 }
 
