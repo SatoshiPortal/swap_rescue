@@ -6,10 +6,8 @@ edition = "2024"
 [dependencies]
 boltz-client = { git = "https://github.com/SatoshiPortal/boltz-rust.git", rev = "a5aec30422908026091b1f20f1a3e665722103de", features = ["lnurl", "electrum"] }
 tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-dialoguer = "0.11"
 bip39 = "2.0"
 bitcoin = "0.32"
 iced = { version = "0.13", features = ["tokio", "advanced"] }

@@ -1,73 +1,68 @@
-# swap_rescue configuration
-# Run with: cargo run -- --config config.yaml
-# Launch GUI: cargo run (no args) or cargo run -- --gui
+# swap_rescue — example provider config
+# Launch GUI: `cargo run` (or the prebuilt binary) — there are no CLI flags.
 #
-# rescue_type: "claim"     — claim funds from the server's lockup (swap completed on server side)
-# rescue_type: "refund"    — reclaim funds from your own lockup (swap timed out)
+# This file contains ONLY provider-supplied swap data.
+# Mnemonic, passphrase, swap index, and return address are entered in the GUI
+# and are never persisted to disk.
 #
-# swap_type: "chain"       — chain swap (BTC <-> L-BTC cross-chain)
-# swap_type: "submarine"   — submarine swap (on-chain <-> Lightning)
+# rescue_type:
+#   "claim"   — sweep funds from the counterparty's lockup
+#   "refund"  — reclaim funds from your own lockup after a timeout
 #
-# For CLAIM (chain only): preimage is required; return_address must be a to_network address
-# For REFUND (chain):     preimage is not needed; return_address must be a from_network address
-# For REFUND (submarine): preimage is not needed; to_network is ignored; return_address must be a from_network address
-
-user_input:
-  # BIP39 mnemonic used to derive swap keys
-  mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-
-  # BIP39 passphrase (leave empty if none was set)
-  passphrase: ""
-
-  # Derivation index for this swap (default: 0)
-  swap_index: 1
-
-  # Address where rescued funds will be sent.
-  # For claim: must be a to_network address (e.g. Liquid address when to_network is "liquid")
-  # For refund: must be a from_network address (e.g. Bitcoin address when from_network is "bitcoin")
-  return_address: "lq1qq..."
+# swap_type:
+#   "chain"      — on-chain ↔ on-chain (BTC ↔ L-BTC). Supports claim + refund.
+#   "submarine"  — on-chain → Lightning. Supports refund only (user side).
+#   "reverse"    — Lightning → on-chain. Supports claim only (user side).
+#
+# Supported combinations:
+#   chain     + claim  →  claim server's `server_lockup_address` on `to_network`
+#   chain     + refund →  refund from `user_lockup_address` on `from_network`
+#   submarine + refund →  refund from `user_lockup_address` on `from_network`
+#   reverse   + claim  →  claim from `user_lockup_address` on `from_network`
+#
+# Return-address rule (entered in the GUI):
+#   chain claim                       → address on `to_network`
+#   everything else (refund / reverse claim) → address on `from_network`
 
 provider_input:
-  # "claim" or "refund" (case-insensitive)
+  # See "Supported combinations" above.
   rescue_type: "claim"
-
-  # "chain" or "submarine" (case-insensitive; default: "chain")
   swap_type: "chain"
 
-  # Taproot leaf scripts from the swap tree (obtained from the Boltz API or your swap record)
+  # Taproot leaf scripts from the swap tree (Boltz response or your swap record).
   claim_leaf:
     output: "82012088a914fb07ad8fa158706f024e4f4a3a2b5adf3ace6566882045ce97fc6a6e8dfa139d8d8f86a391cafeca9fb564066e488233c38d009bf3acac"
     version: 196
-
   refund_leaf:
     output: "20abf1a3992fad6570a672ff09d62585f3eb1b8567b99c2f6346b1b592f2272b9cad034c0a37b1"
     version: 196
 
-  # Source and destination chains: "bitcoin" / "btc" or "liquid" / "lbtc"
-  # For submarine refunds, to_network is not used
+  # Networks: "bitcoin" / "btc" or "liquid" / "lbtc" (case-insensitive).
+  # For submarine refund and reverse claim, `to_network` is unused — leave it "".
   from_network: "bitcoin"
   to_network: "liquid"
 
-  # Blinding key for Liquid UTXO unblinding — required when either network is "liquid", omit otherwise
+  # Required when either network is Liquid; omit/null for pure Bitcoin.
   blinding_key: "097f355d46b80e154371fb22a5b3e0f0a4ca97cea6b5c0bb725ee4f2ad684131"
 
-  # Block height at which the refund timelock expires
+  # Block height at which the refund timelock expires.
   timeout_block_height: 3607116
 
-  # Server's 33-byte compressed public key (hex)
+  # Server's 33-byte compressed pubkey (hex).
   server_public_key: "03abf1a3992fad6570a672ff09d62585f3eb1b8567b99c2f6346b1b592f2272b9c"
 
-  # Address where the user locked funds (from_network side)
+  # On-chain lockup address. For chain refund / submarine refund / reverse claim this is YOUR
+  # (or the on-chain HTLC) address; for chain claim this is the from_network side.
   user_lockup_address: "bc1plcnf5s75vqtgzjge4wcnh77ypacluhffrud9njwss5tenrjfa8hsx5ejn2"
 
-  # Address where the server locked funds (to_network side) — required for chain swap claim only
+  # Required only for chain claim (the address on to_network you're claiming).
   server_lockup_address: "lq1pqgw3rh353w6vxpkuupc883yqegmdyrxkd6qd3nlzvx5ys4x57r5axr7xfuf3vusv58hcp8xt0asznaj6w5x9wmsr4f9e254k0uvn85hn780gzgzfa0ms"
 
-  # Swap amount in satoshis
+  # Swap amount in satoshis.
   amount: 49017
 
-  # Unique swap identifier from Boltz
+  # Unique swap identifier from Boltz.
   swap_id: "RRoRkW2yDHM5"
 
-  # Preimage (hex) — required for chain swap rescue_type "claim", not needed for "refund"
+  # Required for chain claim and reverse claim. Leave null/empty for refunds.
   preimage: "508a03ceaf6e73e582a5846d291f9742150b6a5761ad1ebb5efeadee89d855af"

@@ -1,6 +1,7 @@
 use boltz_client::PublicKey;
 use boltz_client::boltz::{
-    BOLTZ_MAINNET_URL_V2, BoltzApiClientV2, ChainSwapDetails, CreateSubmarineResponse, Leaf, SwapTree,
+    BOLTZ_MAINNET_URL_V2, BoltzApiClientV2, ChainSwapDetails, CreateReverseResponse,
+    CreateSubmarineResponse, Leaf, SwapTree,
 };
 use boltz_client::error::Error;
 use boltz_client::fees::Fee;
@@ -518,6 +519,107 @@ pub async fn submarine_refund_rescue(
         refund_address.to_string(),
         network,
     ))
+}
+
+pub async fn reverse_claim_rescue(
+    mnemonic: &str,
+    claim_leaf_output: &str,
+    claim_leaf_version: u8,
+    refund_leaf_output: &str,
+    refund_leaf_version: u8,
+    blinding_key: Option<&str>,
+    timeout_block_height: u32,
+    server_public_key: &str,
+    lockup_address: &str,
+    amount: u64,
+    swap_id: &str,
+    claim_address: &str,
+    preimage: &str,
+    passphrase: &str,
+    swap_index: u64,
+    network: Chain,
+) -> Result<(BtcLikeTransaction, ChainClient, u64, String, Chain), Error> {
+    let swap_tree = SwapTree {
+        claim_leaf: Leaf {
+            output: claim_leaf_output.to_string(),
+            version: claim_leaf_version,
+        },
+        refund_leaf: Leaf {
+            output: refund_leaf_output.to_string(),
+            version: refund_leaf_version,
+        },
+    };
+
+    let refund_public_key = PublicKey::from_str(server_public_key)?;
+
+    let claim_swap_key =
+        SwapKey::from_reverse_account(mnemonic, passphrase, network, swap_index)?;
+
+    let claim_public_key = PublicKey {
+        compressed: true,
+        inner: claim_swap_key.keypair.public_key(),
+    };
+
+    let reverse_response = CreateReverseResponse {
+        id: swap_id.to_string(),
+        invoice: None,
+        swap_tree,
+        lockup_address: lockup_address.to_string(),
+        refund_public_key,
+        timeout_block_height,
+        onchain_amount: amount,
+        blinding_key: blinding_key.map(|k| k.to_string()),
+    };
+
+    let claim_script =
+        SwapScript::reverse_from_swap_resp(network, &reverse_response, claim_public_key)?;
+
+    println!("Claim script created (reverse): {:?}", claim_script);
+
+    let mut chain_client = ChainClient::new();
+    match network {
+        Chain::Bitcoin(bitcoin_chain) => {
+            chain_client =
+                chain_client.with_bitcoin(ElectrumBitcoinClient::default(bitcoin_chain, None)?);
+        }
+        Chain::Liquid(liquid_chain) => {
+            chain_client =
+                chain_client.with_liquid(ElectrumLiquidClient::default(liquid_chain, None)?);
+        }
+    }
+
+    let boltz_api = BoltzApiClientV2::new(
+        BOLTZ_MAINNET_URL_V2.to_string(),
+        Some(Duration::from_secs(30)),
+    );
+
+    println!("\n=== Constructing Reverse Claim Transaction ===");
+    println!("Swap ID: {}", swap_id);
+    println!("Claim address: {}", claim_address);
+    println!("Network: {:?}", network);
+
+    let fee = match network {
+        Chain::Liquid(_) => Fee::Absolute(30),
+        Chain::Bitcoin(_) => Fee::Absolute(300),
+    };
+
+    let preimage = Preimage::from_str(preimage)?;
+
+    let swap_params = SwapTransactionParams {
+        keys: claim_swap_key.keypair,
+        output_address: claim_address.to_string(),
+        fee,
+        swap_id: swap_id.to_string(),
+        options: Some(TransactionOptions::default().with_cooperative(true)),
+        chain_client: &chain_client,
+        boltz_client: &boltz_api,
+    };
+
+    println!("\nConstructing reverse claim transaction...");
+    let tx = claim_script.construct_claim(&preimage, swap_params).await?;
+    println!("Reverse claim transaction constructed successfully!");
+
+    Ok((tx, chain_client, amount, claim_address.to_string(), network))
 }
 
 pub fn parse_chain(input: &str) -> Result<Chain, String> {
